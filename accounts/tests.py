@@ -85,9 +85,10 @@ class AuthenticationTests(APITestCase):
 
     def test_login_rejects_wrong_password_and_unknown_email_generically(self):
         User.objects.create_user(email="jamie@example.com", name="Jamie", password=self.password)
-        wrong_password = self.client.post(
+        wrong_secret = secrets.token_urlsafe(32) + "A1!"
+        wrong_password_response = self.client.post(
             self.login_url,
-            {"email": "jamie@example.com", "password": secrets.token_urlsafe(32) + "A1!"},
+            {"email": "jamie@example.com", "password": wrong_secret},
             format="json",
         )
         unknown_email = self.client.post(
@@ -95,9 +96,9 @@ class AuthenticationTests(APITestCase):
             {"email": "nobody@example.com", "password": self.password},
             format="json",
         )
-        self.assertEqual(wrong_password.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(wrong_password_response.status_code, status.HTTP_401_UNAUTHORIZED)
         self.assertEqual(unknown_email.status_code, status.HTTP_401_UNAUTHORIZED)
-        self.assertEqual(wrong_password.data, unknown_email.data)
+        self.assertEqual(wrong_password_response.data, unknown_email.data)
 
     def test_real_jwt_authenticates_protected_patient_endpoint(self):
         User.objects.create_user(email="jamie@example.com", name="Jamie", password=self.password)
