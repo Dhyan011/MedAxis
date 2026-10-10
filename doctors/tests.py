@@ -1,5 +1,6 @@
 import secrets
 
+from django.db import IntegrityError, transaction
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
@@ -102,6 +103,17 @@ class DoctorApiTests(APITestCase):
             self.client.post(self.list_url, self.valid_payload(email="ROWAN@EXAMPLE.COM"), format="json"),
         )
         self.assertTrue(all(r.status_code == status.HTTP_400_BAD_REQUEST for r in bad_responses))
+
+    def test_database_rejects_duplicate_doctor_email(self):
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            Doctor.objects.create(
+                created_by=self.creator,
+                name="Dr. Duplicate",
+                specialization="Pediatrics",
+                email=self.doctor.email,
+                phone="555-0191",
+                experience_years=3,
+            )
 
     def test_invalid_put_returns_400(self):
         response = self.client.put(
