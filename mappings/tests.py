@@ -125,6 +125,13 @@ class MappingApiTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("doctor_id", response.data)
 
+    def test_missing_mapping_identifiers_return_400(self):
+        responses = (
+            self.client.post(self.list_url, {"patient_id": self.patient.pk}, format="json"),
+            self.client.post(self.list_url, {"doctor_id": self.doctor.pk}, format="json"),
+        )
+        self.assertTrue(all(r.status_code == status.HTTP_400_BAD_REQUEST for r in responses))
+
     def test_foreign_patient_get_and_mapping_delete_return_404(self):
         foreign_mapping = self.mapping(patient=self.other_patient, doctor=self.second_doctor)
         self.assertEqual(self.client.get(self.item_url(self.other_patient.pk)).status_code, status.HTTP_404_NOT_FOUND)
