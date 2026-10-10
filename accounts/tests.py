@@ -98,3 +98,20 @@ class AuthenticationTests(APITestCase):
         self.assertEqual(wrong_password.status_code, status.HTTP_401_UNAUTHORIZED)
         self.assertEqual(unknown_email.status_code, status.HTTP_401_UNAUTHORIZED)
         self.assertEqual(wrong_password.data, unknown_email.data)
+
+    def test_real_jwt_authenticates_protected_patient_endpoint(self):
+        User.objects.create_user(email="jamie@example.com", name="Jamie", password=self.password)
+        protected_url = reverse("patient-list")
+        self.assertEqual(
+            self.client.get(protected_url).status_code,
+            status.HTTP_401_UNAUTHORIZED,
+        )
+        login = self.client.post(
+            self.login_url,
+            {"email": "jamie@example.com", "password": self.password},
+            format="json",
+        )
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {login.data['access']}")
+        response = self.client.get(protected_url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data, [])
