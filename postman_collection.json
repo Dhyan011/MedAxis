@@ -1,8 +1,8 @@
 {
   "info": {
     "_postman_id": "9c640c6b-0e72-4816-bd65-62bdb98e7b9a",
-    "name": "WhatBytes Healthcare Backend",
-    "description": "All 16 assignment endpoints. Run Login first; its test script stores the returned access token in accessToken. Fill email/password/name and resource variables in a local Postman environment. No credential or token is embedded in this collection.",
+    "name": "MedAxis API",
+    "description": "All 16 MedAxis assignment endpoints. For a new user, run Register then Login; Login stores the returned access token in accessToken. Fill email/password/name and resource variables in Postman. No credential or token is embedded in this collection.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [

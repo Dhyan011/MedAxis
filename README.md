@@ -1,43 +1,139 @@
-# WhatBytes Healthcare Backend
+# MedAxis
 
-A small Django REST Framework API for user authentication, patient records, doctor records, and patient-doctor assignments. The API uses PostgreSQL and JWT bearer authentication. It has no frontend.
+A secure, assignment-scope healthcare backend API built with Django, Django REST Framework, and PostgreSQL. Users authenticate with JWTs, manage their own patient records, read a shared doctor directory, and assign doctors to patients.
 
-## Stack
+> Built as the backend assignment for the WhatBytes Backend Developer Intern role. This project does not claim healthcare regulatory compliance.
 
-- Python 3.12 (the implementation was verified with Python 3.12.3)
-- Django 5.2.18
-- Django REST Framework 3.18.3
-- djangorestframework-simplejwt 5.5.1
-- PostgreSQL (verified with PostgreSQL 16)
-- psycopg2-binary 2.9.13 and python-decouple 3.8
+## Table of contents
 
-The direct dependencies are pinned in `requirements.txt`.
+- [Features](#features)
+- [Tech stack](#tech-stack)
+- [Project structure](#project-structure)
+- [Database design](#database-design)
+- [Authentication and authorization](#authentication-and-authorization)
+- [Getting started](#getting-started)
+- [Environment variables](#environment-variables)
+- [API reference](#api-reference)
+- [Example requests](#example-requests)
+- [Postman](#postman)
+- [Error handling](#error-handling)
+- [Running tests](#running-tests)
+- [Design decisions and assumptions](#design-decisions-and-assumptions)
+- [Limitations and future work](#limitations-and-future-work)
+
+## Features
+
+- Email-based registration and login with JWT access and refresh tokens.
+- Owner-scoped patient CRUD; users cannot read or modify another user's patients.
+- Shared doctor directory; any authenticated user can read doctors, but only a doctor’s creator can update or delete that doctor.
+- Patient-doctor assignment with a database-enforced unique `(patient, doctor)` pair.
+- Serializer validation and structured 4xx responses for invalid requests.
+- Environment-based secrets and PostgreSQL configuration.
+- Django REST Framework tests for authentication, ownership, permissions, validation, missing records, and database integrity.
+
+## Tech stack
+
+| Layer | Technology | Verified version |
+|---|---|---|
+| Language | Python | 3.12.3 |
+| Web framework | Django | 5.2.18 |
+| API framework | Django REST Framework | 3.18.3 |
+| JWT | djangorestframework-simplejwt | 5.5.1 |
+| Database driver | psycopg2-binary | 2.9.13 |
+| Configuration | python-decouple | 3.8 |
+| Database | PostgreSQL | 16.15 |
+| ORM / tests | Django ORM / Django test runner | — |
+
+Direct dependencies are pinned in [`requirements.txt`](requirements.txt).
 
 ## Project structure
 
 ```text
-accounts/     Custom email-based user, registration, authentication tests
-patients/     Patient model, owner-scoped CRUD, tests
-doctors/      Doctor model, creator-only mutations, tests
-mappings/     Patient-doctor links, shared route, tests
-config/       Django settings and root URLs
-internal/     Kept outside this repository; engineering log and interview notes
+MedAxis/
+├── accounts/          Custom email-based user, registration, authentication tests
+├── patients/          Patient model, owner-scoped CRUD, tests
+├── doctors/           Doctor model, creator-only mutations, tests
+├── mappings/          Patient-doctor assignments, shared route, tests
+├── config/            Django settings and root URL configuration
+├── manage.py          Django management entry point
+├── requirements.txt   Pinned direct dependencies
+├── .env.example       Environment-variable template (placeholders only)
+├── README.md
+└── postman_collection.json
 ```
 
-## Database design and behavior
+## Database design
 
-- `accounts.User` extends `AbstractUser`, removes `username`, and authenticates by unique email. `name` is a required field.
-- A patient belongs to its creator (`created_by`). Patient querysets are filtered by the authenticated user, so another user's patient returns **404** for read, update, and delete.
-- A doctor records its creator. Authenticated users can read all doctors; only the creator can update or delete a doctor (others receive **403**).
-- A mapping links one patient and one doctor. PostgreSQL enforces unique `(patient, doctor)` pairs. Mapping rows cascade-delete when either related patient or doctor is deleted.
-- List routes return unpaginated JSON arrays. `PUT` is supported; `PATCH` is also available on patient and doctor detail routes.
-- Registration and login are the only public API endpoints. All other API operations require a JWT access token.
+```mermaid
+erDiagram
+    USER ||--o{ PATIENT : owns
+    USER ||--o{ DOCTOR : creates
+    PATIENT ||--o{ MAPPING : has
+    DOCTOR ||--o{ MAPPING : assigned_in
 
-## Setup
+    USER {
+        int id PK
+        string email UK
+        string name
+        string password_hash
+    }
+    PATIENT {
+        int id PK
+        int created_by FK
+        string name
+        int age
+        string gender
+        string phone
+        text address
+        text medical_history
+    }
+    DOCTOR {
+        int id PK
+        int created_by FK
+        string name
+        string specialization
+        string email UK
+        string phone
+        int experience_years
+    }
+    MAPPING {
+        int id PK
+        int patient FK
+        int doctor FK
+        datetime created_at
+    }
+```
 
-### 1. Create the PostgreSQL database
+The mapping model has a database unique constraint on `(patient, doctor)`, preventing duplicate assignments even if concurrent requests pass serializer validation at the same time. Patient and doctor foreign keys on mappings use `CASCADE`, so deleting either related record removes its mappings.
 
-Install and start PostgreSQL if it is not already available. On Ubuntu:
+## Authentication and authorization
+
+- The custom user model uses `email` as `USERNAME_FIELD`; usernames are disabled.
+- Login returns an access token (60-minute lifetime) and refresh token (1-day lifetime). The API does not expose a token-refresh URL.
+- The default permission is `IsAuthenticated`. Only registration and login are public.
+- Patient querysets are filtered by the authenticated owner; another user's patient returns 404 to avoid revealing its existence.
+- Any authenticated user can read doctors; only the creator may update or delete one. A non-creator receives 403.
+- Mapping list results are limited to mappings for the caller's patients. Mapping creation and removal require ownership of the patient.
+- Ownership fields such as `created_by` are read-only in serializers and assigned by the server.
+
+## Getting started
+
+### Prerequisites
+
+- Python 3.12 (the implementation was tested with Python 3.12.3).
+- PostgreSQL (the implementation and tests were verified with PostgreSQL 16.15).
+- Git.
+
+### 1. Clone the repository
+
+```bash
+git clone https://github.com/Dhyan011/MedAxis.git
+cd MedAxis
+```
+
+### 2. Create the PostgreSQL role and database
+
+On Ubuntu, install and start PostgreSQL if needed:
 
 ```bash
 sudo apt-get update
@@ -45,13 +141,13 @@ sudo apt-get install postgresql postgresql-client
 sudo service postgresql start
 ```
 
-Create a login role and database. Set the role password interactively so it does not appear in shell history:
+Open a PostgreSQL shell as the administrative user:
 
 ```bash
 sudo -u postgres psql
 ```
 
-At the PostgreSQL prompt:
+At the `psql` prompt, create the role and set its password interactively so it is not written in shell history:
 
 ```sql
 CREATE ROLE healthcare_app LOGIN CREATEDB;
@@ -60,40 +156,28 @@ CREATE DATABASE healthcare_backend OWNER healthcare_app;
 \q
 ```
 
-The test runner creates a temporary test database, so the role needs `CREATEDB` permission.
+The role needs `CREATEDB` so Django can create its temporary test database. The values match `.env.example`; you may choose other database names/credentials if you update `.env` accordingly.
 
-### 2. Install Python dependencies
-
-From the repository root:
+### 3. Install dependencies and configure the environment
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt
-```
-
-### 3. Configure environment variables
-
-```bash
 cp .env.example .env
 ```
 
-Edit `.env` and set a newly generated `SECRET_KEY`, the database password you just set, and the desired hosts. Do not commit `.env`.
+Edit `.env` with the PostgreSQL role password and a newly generated Django secret key. Do not commit `.env`. To generate a key locally:
 
-| Variable | Purpose |
-|---|---|
-| `SECRET_KEY` | Django signing key; keep private |
-| `DEBUG` | Django debug mode; use `False` outside local development |
-| `ALLOWED_HOSTS` | Comma-separated allowed hostnames |
-| `DB_NAME` | PostgreSQL database name |
-| `DB_USER` | PostgreSQL login role |
-| `DB_PASSWORD` | PostgreSQL role password |
-| `DB_HOST` | Database hostname, normally `127.0.0.1` locally |
-| `DB_PORT` | PostgreSQL port, normally `5432` |
+```bash
+python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"
+```
 
-Settings require PostgreSQL configuration; there is no SQLite fallback.
+Copy the generated value directly into your local `.env`; do not paste it into source code or documentation.
 
-### 4. Migrate, check, test, and run
+### 4. Check, migrate, test, and run
+
+From the repository root with the virtual environment active and `.env` configured:
 
 ```bash
 python manage.py check
@@ -102,183 +186,181 @@ python manage.py test
 python manage.py runserver
 ```
 
-The test command uses Django's test runner and creates/drops a PostgreSQL test database. Tests must be run using the configured PostgreSQL settings.
+The local API is available at `http://127.0.0.1:8000/`. Settings require PostgreSQL; there is no SQLite fallback.
 
-## Authentication
+## Environment variables
 
-Register with `POST /api/auth/register/`, then log in with `POST /api/auth/login/`. Login returns an `access` token (60-minute lifetime) and a `refresh` token (1-day lifetime). Send the access token on protected routes as `Authorization: Bearer <access-token>`.
+| Variable | Purpose | Template value |
+|---|---|---|
+| `SECRET_KEY` | Django signing key; keep private | Placeholder in `.env.example` |
+| `DEBUG` | Django debug mode | `False` |
+| `ALLOWED_HOSTS` | Comma-separated allowed hosts | `127.0.0.1,localhost` |
+| `DB_NAME` | PostgreSQL database name | `healthcare_backend` |
+| `DB_USER` | PostgreSQL login role | `healthcare_app` |
+| `DB_PASSWORD` | PostgreSQL role password | Placeholder in `.env.example` |
+| `DB_HOST` | Database hostname | `127.0.0.1` |
+| `DB_PORT` | PostgreSQL port | `5432` |
 
-Examples below use these shell variables to avoid embedding credentials or tokens:
+`python-decouple` loads the local `.env`; environment variables can also be supplied by the deployment environment.
+
+## API reference
+
+Base URL for local development: `http://127.0.0.1:8000`. All routes require a bearer access token except registration and login.
+
+### Authentication
+
+| # | Method | Endpoint | Access |
+|---:|---|---|---|
+| 1 | POST | `/api/auth/register/` | Public |
+| 2 | POST | `/api/auth/login/` | Public |
+
+### Patients
+
+| # | Method | Endpoint | Access |
+|---:|---|---|---|
+| 3 | POST | `/api/patients/` | Authenticated; owner set server-side |
+| 4 | GET | `/api/patients/` | Authenticated; returns caller's patients |
+| 5 | GET | `/api/patients/{id}/` | Owner only; otherwise 404 |
+| 6 | PUT | `/api/patients/{id}/` | Owner only; otherwise 404 |
+| 7 | DELETE | `/api/patients/{id}/` | Owner only; otherwise 404 |
+
+### Doctors
+
+| # | Method | Endpoint | Access |
+|---:|---|---|---|
+| 8 | POST | `/api/doctors/` | Authenticated; creator set server-side |
+| 9 | GET | `/api/doctors/` | Any authenticated user |
+| 10 | GET | `/api/doctors/{id}/` | Any authenticated user |
+| 11 | PUT | `/api/doctors/{id}/` | Creator only; otherwise 403 |
+| 12 | DELETE | `/api/doctors/{id}/` | Creator only; otherwise 403 |
+
+### Patient-doctor mappings
+
+| # | Method | Endpoint | Access |
+|---:|---|---|---|
+| 13 | POST | `/api/mappings/` | Authenticated; patient must be caller-owned |
+| 14 | GET | `/api/mappings/` | Authenticated; caller's patient mappings only |
+| 15 | GET | `/api/mappings/{patient_id}/` | Authenticated; owned patient required |
+| 16 | DELETE | `/api/mappings/{mapping_id}/` | Authenticated; mapping must belong to caller's patient |
+
+`GET /api/mappings/{id}/` and `DELETE /api/mappings/{id}/` share a URL pattern: on GET the path value is a **patient ID**; on DELETE it is a **mapping ID**.
+
+`PATCH` is also supported for patient and doctor detail routes. `PUT` replaces a resource and requires all writable fields.
+
+## Example requests
+
+The examples use placeholders rather than real credentials or tokens. Replace the angle-bracket placeholders locally. After login, export the returned access token for protected requests:
 
 ```bash
 BASE_URL=http://127.0.0.1:8000
-TOKEN='<access token returned by login>'
+TOKEN='<access token from login>'
 ```
 
-## API endpoints (all 16)
-
-### Authentication (public)
-
-**1. `POST /api/auth/register/`** — body fields are `name`, `email`, and `password`. Email is trimmed/lowercased; duplicates and Django password-validator failures return structured 400 responses. Password is write-only.
+### Register
 
 ```bash
-curl -X POST "$BASE_URL/api/auth/register/" -H 'Content-Type: application/json' \
+curl -X POST "$BASE_URL/api/auth/register/" \
+  -H 'Content-Type: application/json' \
   -d '{"name":"<name>","email":"<email>","password":"<new password>"}'
 ```
 
-201 response:
+201 response (password is not returned):
+
 ```json
 {"id": 1, "name": "<name>", "email": "<normalized-email>"}
 ```
 
-**2. `POST /api/auth/login/`** — uses email and password. Invalid credentials return a generic 401.
+### Log in
 
 ```bash
-curl -X POST "$BASE_URL/api/auth/login/" -H 'Content-Type: application/json' \
+curl -X POST "$BASE_URL/api/auth/login/" \
+  -H 'Content-Type: application/json' \
   -d '{"email":"<email>","password":"<password>"}'
 ```
 
 200 response:
+
 ```json
 {"refresh":"<refresh-token>","access":"<access-token>"}
 ```
 
-### Patients (JWT required; owner-only)
-
-**3. `POST /api/patients/`** — `name`, `age` (0–130), `gender` (`M`, `F`, or `O`), `phone`, `address`; `medical_history` is optional. Any client-sent `created_by` is ignored.
+### Create a patient
 
 ```bash
-curl -X POST "$BASE_URL/api/patients/" -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+curl -X POST "$BASE_URL/api/patients/" \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"name":"<patient name>","age":30,"gender":"O","phone":"<phone>","address":"<address>","medical_history":""}'
 ```
 
-201 response:
-```json
-{"id":1,"created_by":1,"name":"<patient name>","age":30,"gender":"O","phone":"<phone>","address":"<address>","medical_history":"","created_at":"<timestamp>","updated_at":"<timestamp>"}
-```
-
-**4. `GET /api/patients/`** — returns the caller's patients as a plain array.
+### Create a doctor
 
 ```bash
-curl "$BASE_URL/api/patients/" -H "Authorization: Bearer $TOKEN"
-```
-
-200 response: `[{"id":1,"created_by":1,"name":"<patient name>","age":30,"gender":"O","phone":"<phone>","address":"<address>","medical_history":"","created_at":"<timestamp>","updated_at":"<timestamp>"}]`
-
-**5. `GET /api/patients/{id}/`** — retrieve an owned patient. Missing and other-user IDs return 404.
-
-```bash
-curl "$BASE_URL/api/patients/{{patientId}}/" -H "Authorization: Bearer $TOKEN"
-```
-
-200 response: the patient object shown for endpoint 3.
-
-**6. `PUT /api/patients/{id}/`** — replace an owned patient's editable fields; all required fields must be present. `PATCH` is also supported.
-
-```bash
-curl -X PUT "$BASE_URL/api/patients/{{patientId}}/" -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -d '{"name":"<updated name>","age":31,"gender":"F","phone":"<phone>","address":"<address>","medical_history":"<history>"}'
-```
-
-200 response: updated patient object.
-
-**7. `DELETE /api/patients/{id}/`** — delete an owned patient; mapping rows cascade-delete.
-
-```bash
-curl -X DELETE "$BASE_URL/api/patients/{{patientId}}/" -H "Authorization: Bearer $TOKEN"
-```
-
-204 response: empty body.
-
-### Doctors (JWT required; readable by all authenticated users)
-
-**8. `POST /api/doctors/`** — `name`, `specialization`, `email`, `phone`, and `experience_years` (0–80). Creator is assigned server-side.
-
-```bash
-curl -X POST "$BASE_URL/api/doctors/" -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+curl -X POST "$BASE_URL/api/doctors/" \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"name":"<doctor name>","specialization":"<specialization>","email":"<doctor email>","phone":"<phone>","experience_years":8}'
 ```
 
-201 response:
-```json
-{"id":1,"created_by":1,"name":"<doctor name>","specialization":"<specialization>","email":"<normalized-email>","phone":"<phone>","experience_years":8,"created_at":"<timestamp>","updated_at":"<timestamp>"}
-```
+### Assign the doctor to the patient
 
-**9. `GET /api/doctors/`** — list all doctors as a plain array.
+Use the numeric IDs returned by the patient and doctor create responses:
 
 ```bash
-curl "$BASE_URL/api/doctors/" -H "Authorization: Bearer $TOKEN"
+curl -X POST "$BASE_URL/api/mappings/" \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"patient_id":<patient-id>,"doctor_id":<doctor-id>}'
 ```
 
-200 response: `[<doctor object>]`.
-
-**10. `GET /api/doctors/{id}/`** — any authenticated user may retrieve an existing doctor.
+### List doctors assigned to a patient and remove a mapping
 
 ```bash
-curl "$BASE_URL/api/doctors/{{doctorId}}/" -H "Authorization: Bearer $TOKEN"
+# GET takes a patient ID and returns the doctors assigned to that patient.
+curl "$BASE_URL/api/mappings/<patient-id>/" -H "Authorization: Bearer $TOKEN"
+
+# DELETE takes a mapping ID, not a patient ID.
+curl -X DELETE "$BASE_URL/api/mappings/<mapping-id>/" -H "Authorization: Bearer $TOKEN"
 ```
 
-200 response: the doctor object shown for endpoint 8.
+## Postman
 
-**11. `PUT /api/doctors/{id}/`** — creator only; non-creators receive 403. `PATCH` is also supported.
+Import [`postman_collection.json`](postman_collection.json). Set `baseUrl`, `name`, `email`, `password`, and `doctorEmail` in the collection variables. Run **Register** once for a new email, then **Login**; its test script stores the access token in the collection variable `accessToken`. The create-patient, create-doctor, and assign-mapping scripts store `patientId`, `doctorId`, and `mappingId` after successful requests. Use the collection in order so IDs exist before dependent mapping requests. Avoid defining empty environment variables with the same token/ID names, because environment variables take precedence over collection variables. The collection contains no usable credentials or tokens.
+
+## Error handling
+
+Errors are returned as JSON with an appropriate HTTP status.
+
+| Status | Meaning |
+|---:|---|
+| 400 | Validation error: missing/invalid field, duplicate email, or duplicate mapping |
+| 401 | Missing, invalid, or expired token; or invalid login credentials |
+| 403 | Authenticated but not permitted (for example, updating another creator's doctor) |
+| 404 | Record does not exist or is intentionally hidden by owner scoping |
+
+Patient gender choices are `M`, `F`, and `O`; patient age is limited to 0–130; doctor experience is limited to 0–80 years. These are input-validation bounds, not clinical rules.
+
+## Running tests
 
 ```bash
-curl -X PUT "$BASE_URL/api/doctors/{{doctorId}}/" -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -d '{"name":"<updated doctor>","specialization":"<specialization>","email":"<doctor email>","phone":"<phone>","experience_years":9}'
+python manage.py check
+python manage.py test
 ```
 
-200 response: updated doctor object.
+The suite currently contains 41 tests. Django creates and drops a temporary PostgreSQL test database; the configured role therefore needs `CREATEDB`. Tests cover registration and login, real and invalid JWT access, CRUD and validation, owner isolation, doctor creator permissions, missing records, mapping duplicates and cascades, and database-level uniqueness.
 
-**12. `DELETE /api/doctors/{id}/`** — creator only; mapping rows cascade-delete.
+## Design decisions and assumptions
 
-```bash
-curl -X DELETE "$BASE_URL/api/doctors/{{doctorId}}/" -H "Authorization: Bearer $TOKEN"
-```
+- **Custom user model before initial migrations:** email login is configured from the start instead of attempting a mid-project user-model swap.
+- **Patient 404 for other owners:** queryset filtering prevents disclosure of whether a foreign patient's ID exists.
+- **Server-controlled ownership:** `created_by` is read-only and assigned from `request.user`.
+- **Doctor directory visibility:** authenticated users can read the shared directory, while object permissions restrict edits and deletes to the creator.
+- **Mapping ownership and uniqueness:** serializer checks provide clear 4xx responses; the database unique constraint protects against concurrent duplicate requests.
+- **Cascade deletes:** removing a patient or doctor removes related mappings, as required by the assignment.
+- **Plain-array lists:** pagination was not added because it is outside the assignment's requested behavior.
 
-204 response: empty body.
+## Limitations and future work
 
-### Patient-doctor mappings (JWT required)
+- No pagination, filtering, or search on list endpoints.
+- No logout/token blacklist or token-refresh endpoint; issued tokens expire naturally.
+- No rate limiting, role system, frontend, or deployment automation.
+- This assignment backend does not claim compliance with HIPAA or other healthcare regulations.
 
-**13. `POST /api/mappings/`** — body contains `patient_id` and `doctor_id`. Patient must belong to caller; missing and foreign patient IDs produce the same 400 validation message. Duplicate pairs return 400.
-
-```bash
-curl -X POST "$BASE_URL/api/mappings/" -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -d '{"patient_id":{{patientId}},"doctor_id":{{doctorId}}}'
-```
-
-201 response:
-```json
-{"id":1,"patient":1,"doctor":1,"created_at":"<timestamp>"}
-```
-
-**14. `GET /api/mappings/`** — list only the caller's patient mappings as a plain array.
-
-```bash
-curl "$BASE_URL/api/mappings/" -H "Authorization: Bearer $TOKEN"
-```
-
-200 response: `[{"id":1,"patient":1,"doctor":1,"created_at":"<timestamp>"}]`.
-
-**15. `GET /api/mappings/{patient_id}/`** — on the shared mapping-ID route, GET treats the path number as a patient ID and returns its assigned doctors. Patient must be owned by caller.
-
-```bash
-curl "$BASE_URL/api/mappings/{{patientId}}/" -H "Authorization: Bearer $TOKEN"
-```
-
-200 response: `[<doctor object>]`.
-
-**16. `DELETE /api/mappings/{id}/`** — on that same route, DELETE treats the path number as a mapping ID. Mapping must belong to a patient owned by caller; otherwise 404.
-
-```bash
-curl -X DELETE "$BASE_URL/api/mappings/{{mappingId}}/" -H "Authorization: Bearer $TOKEN"
-```
-
-204 response: empty body.
-
-## Error behavior and assumptions
-
-- Invalid JSON/field values, missing required fields, weak passwords, invalid/duplicate emails, invalid relationships, and duplicate mappings return 4xx validation responses rather than application tracebacks.
-- Missing records return 404. Patient ownership is intentionally hidden as 404. An unowned patient submitted to mapping creation returns a non-disclosing 400. Non-creator doctor mutation returns 403.
-- Patient gender choices are `M`, `F`, `O`; patient age is capped at 130. Doctor experience is capped at 80 years. These bounds are input-validation choices, not clinical rules.
-- Mapping deletion is a database-level cascade when a patient or doctor is deleted.
-- There is no pagination, refresh-token URL, frontend, deployment configuration, or healthcare regulatory-compliance claim. The API implements the requested assignment scope only.
+Possible future work, if required, includes OpenAPI schema generation, pagination, search, role-based access control, rate limiting, and audit logging.
