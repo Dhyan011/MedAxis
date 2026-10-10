@@ -52,6 +52,16 @@ class DoctorApiTests(APITestCase):
         doctor = Doctor.objects.get(pk=response.data["id"])
         self.assertEqual(doctor.created_by, self.creator)
 
+    def test_put_cannot_change_doctor_creator(self):
+        response = self.client.put(
+            self.detail_url(self.doctor),
+            self.valid_payload(created_by=self.other.pk),
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.doctor.refresh_from_db()
+        self.assertEqual(self.doctor.created_by, self.creator)
+
     def test_authenticated_users_can_list_and_retrieve_all_doctors(self):
         self.client.force_authenticate(self.other)
         listing = self.client.get(self.list_url)
