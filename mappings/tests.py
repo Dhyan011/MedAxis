@@ -85,6 +85,11 @@ class MappingApiTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual({row["id"] for row in response.data}, {self.doctor.pk, self.second_doctor.pk})
 
+    def test_get_patient_without_assignments_returns_empty_array(self):
+        response = self.client.get(self.item_url(self.patient.pk))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data, [])
+
     def test_delete_mapping_owned_by_caller(self):
         mapping = self.mapping()
         response = self.client.delete(self.item_url(mapping.pk))
