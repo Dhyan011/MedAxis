@@ -105,6 +105,20 @@ class PatientApiTests(APITestCase):
                 response = self.client.post(self.list_url, payload, format="json")
                 self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_invalid_or_incomplete_put_returns_400(self):
+        missing_field = self.valid_payload()
+        missing_field.pop("address")
+        invalid_payloads = (
+            self.valid_payload(gender="invalid"),
+            missing_field,
+        )
+        for payload in invalid_payloads:
+            with self.subTest(payload=payload):
+                response = self.client.put(
+                    self.detail_url(self.patient), payload, format="json"
+                )
+                self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_other_users_patient_is_404_for_get_put_and_delete(self):
         detail = self.detail_url(self.other_patient)
         self.assertEqual(self.client.get(detail).status_code, status.HTTP_404_NOT_FOUND)
