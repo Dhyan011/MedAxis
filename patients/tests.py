@@ -62,6 +62,16 @@ class PatientApiTests(APITestCase):
         self.assertEqual(created.created_by, self.owner)
         self.assertEqual(response.data["created_by"], self.owner.pk)
 
+    def test_put_cannot_change_patient_owner(self):
+        response = self.client.put(
+            self.detail_url(self.patient),
+            self.valid_payload(created_by=self.other.pk),
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.patient.refresh_from_db()
+        self.assertEqual(self.patient.created_by, self.owner)
+
     def test_list_returns_plain_array_of_only_owned_patients(self):
         response = self.client.get(self.list_url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
