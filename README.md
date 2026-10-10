@@ -1,6 +1,6 @@
 # MedAxis
 
-A secure, assignment-scope healthcare backend API built with Django, Django REST Framework, and PostgreSQL. Users authenticate with JWTs, manage their own patient records, read a shared doctor directory, and assign doctors to patients.
+A security-focused, assignment-scope healthcare backend API built with Django, Django REST Framework, and PostgreSQL. Users authenticate with JWTs, manage their own patient records, read a shared doctor directory, and assign doctors to patients.
 
 > Built as the backend assignment for the WhatBytes Backend Developer Intern role. This project does not claim healthcare regulatory compliance.
 
@@ -11,6 +11,7 @@ A secure, assignment-scope healthcare backend API built with Django, Django REST
 - [Project structure](#project-structure)
 - [Database design](#database-design)
 - [Authentication and authorization](#authentication-and-authorization)
+- [Security posture and request flow](#security-posture-and-request-flow)
 - [Getting started](#getting-started)
 - [Environment variables](#environment-variables)
 - [API reference](#api-reference)
@@ -115,6 +116,57 @@ The mapping model has a database unique constraint on `(patient, doctor)`, preve
 - Any authenticated user can read doctors; only the creator may update or delete one. A non-creator receives 403.
 - Mapping list results are limited to mappings for the caller's patients. Mapping creation and removal require ownership of the patient.
 - Ownership fields such as `created_by` are read-only in serializers and assigned by the server.
+
+## Security posture and request flow
+
+**Assessment for this assignment's scope:** MedAxis has a **solid security baseline for an assignment-sized CRUD API**. It uses explicit authentication, enforces owner/creator rules at the API layer, validates inputs, and backs duplicate-mapping protection with a PostgreSQL constraint. The current 41-test PostgreSQL suite exercises important authentication, isolation, authorization, and validation cases. This is not a penetration test, independent security audit, or production-readiness certification.
+
+### Implemented safeguards
+
+- **Authentication by default:** DRF's default permission is `IsAuthenticated`; only registration and login are public. Protected requests use JWT bearer authentication.
+- **Password handling:** Registration applies Django password validators and creates users with `create_user`; the password field is write-only and is not included in registration responses.
+- **Patient isolation:** The patient queryset is filtered by `request.user`, and ownership is assigned server-side. A foreign or missing patient detail ID returns 404.
+- **Doctor permissions:** Authenticated users can read the shared doctor directory, but only the creator can update or delete a doctor.
+- **Mapping isolation:** Lists are restricted to mappings for the caller's patients. Create validates ownership; mapping GET and DELETE scope through caller-owned patients.
+- **Validation and database safeguards:** Serializers reject invalid or duplicate inputs with 4xx responses; PostgreSQL enforces a unique `(patient, doctor)` pair and cascades mapping cleanup on deletion.
+- **Configuration hygiene:** Secrets and database settings come from environment variables. `.env` is ignored by Git and `.env.example` contains placeholders only.
+
+### Request and security flow
+
+```mermaid
+flowchart TD
+    C[Client] -->|Register| REG[Public registration]
+    C -->|Login with email and password| LOGIN[Public JWT login]
+    REG -->|Validate password and call create_user| USERDB[(PostgreSQL user row)]
+    LOGIN -->|Invalid credentials| E401[401 response]
+    LOGIN -->|Valid credentials| TOK[Access and refresh tokens]
+    TOK --> C
+    C -->|Bearer access token| JWT[JWT authentication]
+    JWT -->|Missing or invalid token| E401
+    JWT -->|Valid token| AUTH[IsAuthenticated]
+    AUTH --> RESOURCE{Protected resource}
+    RESOURCE -->|Patient| PQ[Queryset filtered by request.user]
+    PQ -->|Owned record| SER[Serializer and ORM operation]
+    PQ -->|Foreign or missing ID| E404[404 response]
+    RESOURCE -->|Doctor read| DR[Shared read for authenticated users]
+    DR --> SER
+    RESOURCE -->|Doctor update or delete| DPERM{Is the caller the creator?}
+    DPERM -->|Yes| SER
+    DPERM -->|No| E403[403 response]
+    RESOURCE -->|Mapping create| MC[Validate patient ownership and doctor]
+    MC -->|Valid owned patient| SER
+    MC -->|Missing or foreign patient| E400[400 validation response]
+    RESOURCE -->|Mapping GET or DELETE| MQ[Scope through caller-owned patient]
+    MQ -->|Owned patient| SER
+    MQ -->|Foreign or missing record| E404
+    SER --> DB[(PostgreSQL)]
+    DB -->|Duplicate patient-doctor pair| E400
+    DB -->|Valid operation| OK[2xx response]
+```
+
+### Security boundaries
+
+The implementation does **not** include rate limiting, multi-factor authentication, an exposed refresh/logout endpoint, refresh-token blacklisting, audit logging, or deployment-specific TLS and monitoring configuration. Before handling real production data, deploy behind HTTPS, review production settings and secrets management, add operational controls, and obtain an appropriate independent security/privacy review. No healthcare regulatory-compliance claim is made.
 
 ## Getting started
 
