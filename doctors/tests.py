@@ -94,7 +94,13 @@ class DoctorApiTests(APITestCase):
         self.assertTrue(all(r.status_code == status.HTTP_400_BAD_REQUEST for r in bad_responses))
 
     def test_missing_doctor_is_404(self):
-        self.assertEqual(self.client.get(self.detail_url(pk=999999)).status_code, status.HTTP_404_NOT_FOUND)
+        detail = self.detail_url(pk=999999)
+        responses = (
+            self.client.get(detail),
+            self.client.put(detail, self.valid_payload(), format="json"),
+            self.client.delete(detail),
+        )
+        self.assertTrue(all(r.status_code == status.HTTP_404_NOT_FOUND for r in responses))
 
     def test_doctor_endpoints_require_authentication(self):
         self.client.force_authenticate(user=None)
