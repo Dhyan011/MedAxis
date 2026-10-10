@@ -93,6 +93,14 @@ class DoctorApiTests(APITestCase):
         )
         self.assertTrue(all(r.status_code == status.HTTP_400_BAD_REQUEST for r in bad_responses))
 
+    def test_invalid_put_returns_400(self):
+        response = self.client.put(
+            self.detail_url(self.doctor),
+            self.valid_payload(experience_years=81),
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_missing_doctor_is_404(self):
         detail = self.detail_url(pk=999999)
         responses = (
