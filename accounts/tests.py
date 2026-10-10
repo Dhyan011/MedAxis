@@ -116,3 +116,10 @@ class AuthenticationTests(APITestCase):
         response = self.client.get(protected_url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data, [])
+
+    def test_invalid_bearer_token_is_rejected(self):
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {secrets.token_urlsafe(32)}"
+        )
+        response = self.client.get(reverse("patient-list"))
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
