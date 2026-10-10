@@ -1,3 +1,14 @@
-from django.shortcuts import render
+from rest_framework.viewsets import ModelViewSet
 
-# Create your views here.
+from .models import Patient
+from .serializers import PatientSerializer
+
+
+class PatientViewSet(ModelViewSet):
+    serializer_class = PatientSerializer
+
+    def get_queryset(self):
+        return Patient.objects.filter(created_by=self.request.user)
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
